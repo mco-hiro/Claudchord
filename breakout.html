@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>ブロック崩し</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0f0f1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      color: white;
+    }
+
+    h1 {
+      font-size: 22px;
+      margin-bottom: 12px;
+      letter-spacing: 2px;
+      color: #a78bfa;
+    }
+
+    #info {
+      display: flex;
+      gap: 40px;
+      margin-bottom: 12px;
+      font-size: 15px;
+      color: #ccc;
+    }
+
+    #info span { color: white; font-weight: bold; }
+
+    canvas {
+      background: #1a1a2e;
+      border-radius: 10px;
+      display: block;
+      border: 2px solid #2d2d4e;
+    }
+
+    #message {
+      margin-top: 16px;
+      font-size: 20px;
+      font-weight: bold;
+      min-height: 28px;
+      color: #a78bfa;
+    }
+
+    #startBtn {
+      margin-top: 12px;
+      padding: 10px 36px;
+      font-size: 15px;
+      font-weight: bold;
+      background: #7c3aed;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #startBtn:hover { background: #6d28d9; }
+
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧱 ブロック崩し</h1>
+  <div id="info">
+    スコア: <span id="score">0</span>
+    &nbsp;&nbsp;
+    残り: <span id="lives">❤️❤️❤️</span>
+  </div>
+  <canvas id="canvas" width="480" height="360"></canvas>
+  <div id="message">スタートを押してね！</div>
+  <button id="startBtn" onclick="startGame()">スタート</button>
+  <p class="hint">← → キー または マウスでパドルを動かす</p>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    const PADDLE_W = 80, PADDLE_H = 10;
+    const BALL_R = 7;
+    const BLOCK_ROWS = 5, BLOCK_COLS = 10;
+    const BLOCK_W = 44, BLOCK_H = 18, BLOCK_GAP = 4;
+    const BLOCK_OFFSET_X = 8, BLOCK_OFFSET_Y = 30;
+
+    const COLORS = ['#f87171','#fb923c','#facc15','#4ade80','#60a5fa'];
+
+    let paddle, ball, blocks, score, lives, animId, running;
+    let keys = {};
+
+    canvas.addEventListener('mousemove', e => {
+      if (!running) return;
+      const rect = canvas.getBoundingClientRect();
+      paddle.x = e.clientX - rect.left - PADDLE_W / 2;
+      paddle.x = Math.max(0, Math.min(canvas.width - PADDLE_W, paddle.x));
+    });
+
+    document.addEventListener('keydown', e => keys[e.key] = true);
+    document.addEventListener('keyup', e => keys[e.key] = false);
+
+    function startGame() {
+      if (animId) cancelAnimationFrame(animId);
+
+      score = 0;
+      lives = 3;
+      running = true;
+
+      paddle = { x: canvas.width / 2 - PADDLE_W / 2, y: canvas.height - 24 };
+
+      ball = {
+        x: canvas.width / 2,
+        y: canvas.height / 2,
+        vx: 3.5,
+        vy: -3.5
+      };
+
+      blocks = [];
+      for (let r = 0; r < BLOCK_ROWS; r++) {
+        for (let c = 0; c < BLOCK_COLS; c++) {
+          blocks.push({
+            x: BLOCK_OFFSET_X + c * (BLOCK_W + BLOCK_GAP),
+            y: BLOCK_OFFSET_Y + r * (BLOCK_H + BLOCK_GAP),
+            alive: true,
+            color: COLORS[r]
+          });
+        }
+      }
+
+      document.getElementById('message').textContent = '';
+      document.getElementById('startBtn').textContent = 'もう一度';
+      updateInfo();
+      loop();
+    }
+
+    function loop() {
+      update();
+      draw();
+      if (running) animId = requestAnimationFrame(loop);
+    }
+
+    function update() {
+      if (keys['ArrowLeft'])  paddle.x = Math.max(0, paddle.x - 6);
+      if (keys['ArrowRight']) paddle.x = Math.min(canvas.width - PADDLE_W, paddle.x + 6);
+
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+
+      // 壁の反射
+      if (ball.x - BALL_R < 0)                  { ball.x = BALL_R; ball.vx *= -1; }
+      if (ball.x + BALL_R > canvas.width)        { ball.x = canvas.width - BALL_R; ball.vx *= -1; }
+      if (ball.y - BALL_R < 0)                   { ball.y = BALL_R; ball.vy *= -1; }
+
+      // ボール落下
+      if (ball.y - BALL_R > canvas.height) {
+        lives--;
+        updateInfo();
+        if (lives <= 0) {
+          running = false;
+          document.getElementById('message').textContent = 'ゲームオーバー...';
+          return;
+        }
+        ball.x = canvas.width / 2;
+        ball.y = canvas.height / 2;
+        ball.vx = 3.5 * (Math.random() > 0.5 ? 1 : -1);
+        ball.vy = -3.5;
+      }
+
+      // パドルとの当たり判定
+      if (
+        ball.y + BALL_R >= paddle.y &&
+        ball.y - BALL_R <= paddle.y + PADDLE_H &&
+        ball.x >= paddle.x &&
+        ball.x <= paddle.x + PADDLE_W
+      ) {
+        ball.vy = -Math.abs(ball.vy);
+        const hit = (ball.x - (paddle.x + PADDLE_W / 2)) / (PADDLE_W / 2);
+        ball.vx = hit * 5;
+      }
+
+      // ブロックとの当たり判定
+      for (const b of blocks) {
+        if (!b.alive) continue;
+        if (
+          ball.x + BALL_R > b.x &&
+          ball.x - BALL_R < b.x + BLOCK_W &&
+          ball.y + BALL_R > b.y &&
+          ball.y - BALL_R < b.y + BLOCK_H
+        ) {
+          b.alive = false;
+          ball.vy *= -1;
+          score += 10;
+          updateInfo();
+
+          if (blocks.every(b => !b.alive)) {
+            running = false;
+            document.getElementById('message').textContent = 'クリア！おめでとう！🎉';
+          }
+          break;
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // ブロック
+      for (const b of blocks) {
+        if (!b.alive) continue;
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.roundRect(b.x, b.y, BLOCK_W, BLOCK_H, 4);
+        ctx.fill();
+      }
+
+      // パドル
+      ctx.fillStyle = '#a78bfa';
+      ctx.beginPath();
+      ctx.roundRect(paddle.x, paddle.y, PADDLE_W, PADDLE_H, 5);
+      ctx.fill();
+
+      // ボール
+      ctx.fillStyle = 'white';
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function updateInfo() {
+      document.getElementById('score').textContent = score;
+      document.getElementById('lives').textContent = '❤️'.repeat(lives);
+    }
+
+    draw();
+  </script>
+</body>
+</html>
