@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>ブロック崩し</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a18;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      color: white;
+    }
+    h1 { font-size: 20px; margin-bottom: 6px; color: #c4b5fd; letter-spacing: 2px; }
+    #info { font-size: 13px; color: #888; margin-bottom: 8px; }
+    #info span { color: white; font-weight: bold; }
+    #drillLabel {
+      font-size: 13px; font-weight: bold; color: #ffd32a;
+      margin-left: 14px; opacity: 0; transition: opacity 0.1s;
+    }
+    canvas { border-radius: 10px; border: 2px solid #1e1e3a; display: block; }
+    #message { margin-top: 12px; font-size: 20px; font-weight: bold; min-height: 28px; color: #c4b5fd; }
+    .btn-row { display: flex; gap: 12px; margin-top: 8px; align-items: center; }
+    button {
+      padding: 10px 28px; font-size: 15px; font-weight: bold;
+      color: white; border: none; border-radius: 8px; cursor: pointer; transition: background 0.2s;
+    }
+    #startBtn { background: #7c3aed; }
+    #startBtn:hover { background: #6d28d9; }
+    #ffBtn {
+      background: #b45309;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #ffBtn:hover  { background: #92400e; }
+    #ffBtn.active { background: #f59e0b; color: #1a0a00; }
+    .hint { margin-top: 6px; font-size: 12px; color: #444; }
+  </style>
+</head>
+<body>
+  <h1>🧱 ブロック崩し</h1>
+  <div id="info">
+    スコア: <span id="score">0</span>
+    &nbsp;&nbsp; 残り: <span id="lives">❤️❤️❤️</span>
+    <span id="drillLabel">🔥 貫通中！</span>
+  </div>
+  <canvas id="canvas" width="520" height="540"></canvas>
+  <div id="message">スタートを押してね！</div>
+  <div class="btn-row">
+    <button id="startBtn" onclick="startGame()">スタート</button>
+    <button id="ffBtn">⏩ 早送り（押している間）</button>
+  </div>
+  <p class="hint">← → キー または マウスでパドルを動かす｜打ち返すたびに貫通ドリル発動！</p>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx    = canvas.getContext('2d');
+    const CW = canvas.width, CH = canvas.height;
+
+    // ===== ブロック設定 =====
+    const ROWS = 16, COLS = 13;
+    const BW = 36, BH = 20, BGAP = 4;
+    const BOX = 2, BOY = 18;
+
+    const ROW_COLORS = [
+      '#ff6b6b','#ff8e53','#ff9f43','#ffd32a',
+      '#bcf25d','#0be881','#00d2d3','#4bcffa',
+      '#74b9ff','#a29bfe','#fd79a8','#e84393',
+      '#6c5ce7','#00b894','#fdcb6e','#e17055'
+    ];
+
+    const PADDLE_W = 130, PADDLE_H = 12;
+    const BALL_R = 7, BASE_SPEED = 4.2;
+    const FF_STEPS = 100; // 早送り倍率
+
+    let paddle, ball, ballTrail, blocks, debris;
+    let score, lives, animId, running;
+    let shakeX = 0, shakeY = 0, flashAlpha = 0;
+    let keys = {};
+    let fastForward = false;
+    const drillLabel = document.getElementById('drillLabel');
+    const ffBtn      = document.getElementById('ffBtn');
+
+    // ===== 早送りボタン =====
+    ffBtn.addEventListener('mousedown',  () => { fastForward = true;  ffBtn.classList.add('active'); });
+    ffBtn.addEventListener('mouseup',    () => { fastForward = false; ffBtn.classList.remove('active'); });
+    ffBtn.addEventListener('mouseleave', () => { fastForward = false; ffBtn.classList.remove('active'); });
+    ffBtn.addEventListener('touchstart', e => { e.preventDefault(); fastForward = true;  ffBtn.classList.add('active'); });
+    ffBtn.addEventListener('touchend',   e => { e.preventDefault(); fastForward = false; ffBtn.classList.remove('active'); });
+
+    // ===== 入力 =====
+    canvas.addEventListener('mousemove', e => {
+      if (!running) return;
+      const rect = canvas.getBoundingClientRect();
+      paddle.x = Math.max(0, Math.min(CW - PADDLE_W, e.clientX - rect.left - PADDLE_W / 2));
+    });
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (!running) return;
+      const rect  = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      const scaleX = CW / rect.width;
+      paddle.x = Math.max(0, Math.min(CW - PADDLE_W, (touch.clientX - rect.left) * scaleX - PADDLE_W / 2));
+    }, { passive: false });
+    document.addEventListener('keydown', e => { keys[e.key] = true; });
+    document.addEventListener('keyup',   e => { keys[e.key] = false; });
+
+    // ===== ゲーム開始 =====
+    function startGame() {
+      if (animId) cancelAnimationFrame(animId);
+      score = 0; lives = 3; running = true;
+      debris = []; ballTrail = [];
+      shakeX = 0; shakeY = 0; flashAlpha = 0;
+
+      paddle = { x: CW / 2 - PADDLE_W / 2, y: CH - 30 };
+
+      blocks = [];
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const hp = Math.ceil(Math.random() * 99);
+          blocks.push({
+            x: BOX + c * (BW + BGAP),
+            y: BOY + r * (BH + BGAP),
+            hp, maxHp: hp,
+            alive: true,
+            baseColor: ROW_COLORS[r],
+            hitFlash: 0,
+            hitCooldown: 0
+          });
+        }
+      }
+
+      launchBall(true);
+      document.getElementById('message').textContent = '';
+      document.getElementById('startBtn').textContent = 'もう一度';
+      updateInfo();
+      loop();
+    }
+
+    function launchBall(penetrating) {
+      const vx = BASE_SPEED * (Math.random() > 0.5 ? 0.6 : -0.6);
+      ball = {
+        x: CW / 2,
+        y: CH - 80,
+        vx,
+        vy: -Math.sqrt(BASE_SPEED * BASE_SPEED - vx * vx),
+        penetrating
+      };
+      ballTrail = [];
+      drillLabel.style.opacity = penetrating ? '1' : '0';
+    }
+
+    // ===== メインループ（早送り対応） =====
+    function loop() {
+      const steps = (running && fastForward) ? FF_STEPS : 1;
+      for (let i = 0; i < steps; i++) {
+        update();
+        if (!running) break;
+      }
+      // 早送り後にUIを同期
+      if (fastForward) drillLabel.style.opacity = ball.penetrating ? '1' : '0';
+      draw();
+      if (running) animId = requestAnimationFrame(loop);
+    }
+
+    // ===== 衝突判定（矩形と円） =====
+    function overlaps(bx, by, bw, bh) {
+      return (ball.x + BALL_R > bx && ball.x - BALL_R < bx + bw &&
+              ball.y + BALL_R > by && ball.y - BALL_R < by + bh);
+    }
+
+    // ===== 更新（1ステップ分） =====
+    function update() {
+      if (keys['ArrowLeft'])  paddle.x = Math.max(0, paddle.x - 7);
+      if (keys['ArrowRight']) paddle.x = Math.min(CW - PADDLE_W, paddle.x + 7);
+
+      // トレイル（早送り中はスキップ）
+      if (!fastForward) {
+        ballTrail.unshift({ x: ball.x, y: ball.y });
+        if (ballTrail.length > 18) ballTrail.pop();
+      }
+
+      // ===== X軸移動 → X衝突解決 =====
+      ball.x += ball.vx;
+
+      if (ball.x - BALL_R < 0)   { ball.x = BALL_R;      ball.vx =  Math.abs(ball.vx); }
+      if (ball.x + BALL_R > CW)  { ball.x = CW - BALL_R; ball.vx = -Math.abs(ball.vx); }
+
+      if (!ball.penetrating) {
+        for (const b of blocks) {
+          if (!b.alive) continue;
+          if (overlaps(b.x, b.y, BW, BH)) {
+            // X方向に押し出す
+            if (ball.vx > 0) ball.x = b.x - BALL_R;
+            else             ball.x = b.x + BW + BALL_R;
+            ball.vx *= -1;
+            hitBlock(b);
+            break;
+          }
+        }
+      }
+
+      // ===== Y軸移動 → Y衝突解決 =====
+      ball.y += ball.vy;
+
+      // 天井 → 貫通解除
+      if (ball.y - BALL_R < 0) {
+        ball.y = BALL_R; ball.vy = Math.abs(ball.vy);
+        if (ball.penetrating) {
+          ball.penetrating = false;
+          if (!fastForward) drillLabel.style.opacity = '0';
+        }
+      }
+
+      // 落下
+      if (ball.y - BALL_R > CH) {
+        lives--;
+        updateInfo();
+        if (lives <= 0) {
+          running = false;
+          document.getElementById('message').textContent = 'ゲームオーバー... 😢';
+          return;
+        }
+        launchBall(true);
+        return;
+      }
+
+      // パドル反射 → 貫通ON
+      if (
+        ball.vy > 0 &&
+        ball.y + BALL_R >= paddle.y &&
+        ball.y + BALL_R <= paddle.y + PADDLE_H + 4 &&
+        ball.x >= paddle.x && ball.x <= paddle.x + PADDLE_W
+      ) {
+        ball.vy = -Math.abs(ball.vy);
+        ball.vx = ((ball.x - (paddle.x + PADDLE_W / 2)) / (PADDLE_W / 2)) * 6;
+        if (!ball.penetrating) {
+          ball.penetrating = true;
+          if (!fastForward) drillLabel.style.opacity = '1';
+        }
+      }
+
+      // Y衝突（通常モード）
+      if (!ball.penetrating) {
+        for (const b of blocks) {
+          if (!b.alive) continue;
+          if (overlaps(b.x, b.y, BW, BH)) {
+            // Y方向に押し出す
+            if (ball.vy > 0) ball.y = b.y - BALL_R;
+            else             ball.y = b.y + BH + BALL_R;
+            ball.vy *= -1;
+            hitBlock(b);
+            break;
+          }
+        }
+      }
+
+      // 貫通モード：重なっている全ブロックにダメージ
+      if (ball.penetrating) {
+        for (const b of blocks) {
+          if (!b.alive || b.hitCooldown > 0) continue;
+          if (overlaps(b.x, b.y, BW, BH)) {
+            hitBlock(b);
+            b.hitCooldown = 12;
+          }
+        }
+      }
+
+      // クールダウン・フラッシュ更新
+      for (const b of blocks) {
+        if (b.hitCooldown > 0) b.hitCooldown--;
+        if (b.hitFlash   > 0) b.hitFlash--;
+      }
+
+      // デブリ（早送り中は簡略化）
+      if (!fastForward) {
+        for (const d of debris) {
+          d.x += d.vx; d.y += d.vy;
+          d.vy += 0.28; d.vx *= 0.98;
+          d.rotation += d.rotSpeed;
+          d.alpha -= 0.02;
+        }
+        debris = debris.filter(d => d.alpha > 0 && d.y < CH + 80);
+      }
+
+      flashAlpha *= 0.82;
+      shakeX *= 0.72; shakeY *= 0.72;
+
+      // クリア判定
+      if (running && blocks.every(b => !b.alive)) {
+        running = false;
+        document.getElementById('message').textContent = 'クリア！全部崩した！🎉';
+      }
+    }
+
+    function hitBlock(b) {
+      b.hp--;
+      b.hitFlash = 7;
+      shakeX += (Math.random() - 0.5) * 2.5;
+      shakeY += (Math.random() - 0.5) * 2.5;
+
+      if (b.hp <= 0) {
+        b.alive = false;
+        score += 10;
+        updateInfo();
+        if (!fastForward) spawnDebris(b);
+        flashAlpha = Math.min(flashAlpha + 0.1, 0.45);
+        shakeX += (Math.random() - 0.5) * 10;
+        shakeY += (Math.random() - 0.5) * 10;
+      }
+    }
+
+    function spawnDebris(b) {
+      for (let i = 0; i < 10; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 2 + Math.random() * 5;
+        debris.push({
+          x: b.x + Math.random() * BW, y: b.y + Math.random() * BH,
+          w: 3 + Math.random() * 8, h: 2 + Math.random() * 4,
+          vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 1.5,
+          rotation: Math.random() * Math.PI * 2,
+          rotSpeed: (Math.random() - 0.5) * 0.28,
+          color: b.baseColor, alpha: 1
+        });
+      }
+    }
+
+    // ===== 描画 =====
+    function draw() {
+      ctx.clearRect(0, 0, CW, CH);
+      ctx.save();
+      ctx.translate(
+        shakeX + (Math.random() - 0.5) * Math.abs(shakeX) * 0.4,
+        shakeY + (Math.random() - 0.5) * Math.abs(shakeY) * 0.4
+      );
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = 'bold 10px monospace';
+
+      for (const b of blocks) {
+        if (!b.alive) continue;
+        const ratio    = b.hp / b.maxHp;
+        const flashing = b.hitFlash > 0;
+
+        ctx.globalAlpha = 0.22 + 0.78 * ratio;
+        ctx.fillStyle   = flashing ? 'white' : b.baseColor;
+        ctx.beginPath();
+        ctx.roundRect(b.x, b.y, BW, BH, 3);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        const tx = b.x + BW / 2, ty = b.y + BH / 2 + 1;
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.lineWidth   = 2.5;
+        ctx.fillStyle   = flashing ? b.baseColor : 'white';
+        ctx.strokeText(b.hp, tx, ty);
+        ctx.fillText  (b.hp, tx, ty);
+      }
+
+      if (!fastForward) {
+        for (const d of debris) {
+          ctx.save();
+          ctx.globalAlpha = d.alpha;
+          ctx.fillStyle   = d.color;
+          ctx.translate(d.x, d.y);
+          ctx.rotate(d.rotation);
+          ctx.fillRect(-d.w / 2, -d.h / 2, d.w, d.h);
+          ctx.restore();
+        }
+      }
+
+      // ボールトレイル
+      for (let i = ballTrail.length - 1; i >= 0; i--) {
+        const t = ballTrail[i];
+        const r = 1 - i / ballTrail.length;
+        ctx.globalAlpha = r * 0.5;
+        ctx.fillStyle   = ball.penetrating
+          ? `hsl(${30 + i * 4}, 100%, 65%)`
+          : `hsl(${260 + i * 5}, 80%, 75%)`;
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, BALL_R * r * 0.9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // パドル
+      const grad = ctx.createLinearGradient(paddle.x, paddle.y, paddle.x, paddle.y + PADDLE_H);
+      grad.addColorStop(0, '#c4b5fd');
+      grad.addColorStop(1, '#7c3aed');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(paddle.x, paddle.y, PADDLE_W, PADDLE_H, 6);
+      ctx.fill();
+
+      // ボール
+      ctx.shadowColor = ball.penetrating ? '#ff9f43' : 'rgba(255,255,255,0.9)';
+      ctx.shadowBlur  = ball.penetrating ? 22 : 14;
+      ctx.fillStyle   = ball.penetrating ? '#ffd32a' : 'white';
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur  = 0;
+
+      ctx.restore();
+
+      if (flashAlpha > 0.01) {
+        ctx.globalAlpha = flashAlpha;
+        ctx.fillStyle   = 'white';
+        ctx.fillRect(0, 0, CW, CH);
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function updateInfo() {
+      document.getElementById('score').textContent = score;
+      document.getElementById('lives').textContent = '❤️'.repeat(Math.max(0, lives));
+    }
+
+    draw();
+  </script>
+</body>
+</html>
