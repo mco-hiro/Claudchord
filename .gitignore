@@ -1,0 +1,11 @@
+# Claude Code の作業フォルダ（個人設定なのでGitに含めない）
+.claude/
+
+# OSが自動生成するファイル
+Thumbs.db
+.DS_Store
+
+# よく使う言語の不要ファイル
+*.pyc
+__pycache__/
+node_modules/
