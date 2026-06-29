@@ -15,92 +15,90 @@
       font-family: 'Segoe UI', sans-serif;
       color: white;
     }
-    h1 { font-size: 20px; margin-bottom: 8px; color: #c4b5fd; letter-spacing: 2px; }
-    #info { font-size: 14px; color: #888; margin-bottom: 10px; }
+    h1 { font-size: 20px; margin-bottom: 6px; color: #c4b5fd; letter-spacing: 2px; }
+    #info { font-size: 13px; color: #888; margin-bottom: 8px; }
     #info span { color: white; font-weight: bold; }
-    canvas { border-radius: 12px; border: 2px solid #1e1e3a; display: block; }
-    #message { margin-top: 14px; font-size: 22px; font-weight: bold; min-height: 30px; color: #c4b5fd; }
+    #drillLabel {
+      font-size: 13px; font-weight: bold;
+      color: #ff9f43;
+      margin-left: 16px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    canvas { border-radius: 10px; border: 2px solid #1e1e3a; display: block; }
+    #message { margin-top: 12px; font-size: 20px; font-weight: bold; min-height: 28px; color: #c4b5fd; }
     #startBtn {
-      margin-top: 10px; padding: 10px 40px; font-size: 15px; font-weight: bold;
+      margin-top: 8px; padding: 10px 40px; font-size: 15px; font-weight: bold;
       background: #7c3aed; color: white; border: none; border-radius: 8px;
       cursor: pointer; transition: background 0.2s;
     }
     #startBtn:hover { background: #6d28d9; }
-    .hint { margin-top: 8px; font-size: 12px; color: #444; }
+    .hint { margin-top: 6px; font-size: 12px; color: #444; }
   </style>
 </head>
 <body>
   <h1>🧱 ブロック崩し</h1>
-  <div id="info">スコア: <span id="score">0</span> &nbsp;&nbsp; 残り: <span id="lives">❤️❤️❤️</span></div>
-  <canvas id="canvas" width="520" height="430"></canvas>
+  <div id="info">
+    スコア: <span id="score">0</span>
+    &nbsp;&nbsp; 残り: <span id="lives">❤️❤️❤️</span>
+    <span id="drillLabel">🔥 貫通中！</span>
+  </div>
+  <canvas id="canvas" width="520" height="500"></canvas>
   <div id="message">スタートを押してね！</div>
   <button id="startBtn" onclick="startGame()">スタート</button>
-  <p class="hint">← → キー または マウスでパドルを動かす</p>
+  <p class="hint">← → キー または マウスでパドルを動かす｜パドルで打ち返すと貫通ドリル発動！</p>
 
   <script>
     const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
+    const ctx    = canvas.getContext('2d');
     const CW = canvas.width, CH = canvas.height;
 
+    // ===== ブロック設定 =====
+    const ROWS = 110, COLS = 104;   // 11440個
+    const BW = 5, BH = 3;           // ブロックサイズ（ギャップなし）
+    const BOX = 0, BOY = 16;        // 配置オフセット
+
+    // 虹色グラデーション（行ごとに色相が変わる）
+    const ROW_COLORS = Array.from({ length: ROWS }, (_, r) =>
+      `hsl(${Math.round((r / ROWS) * 340)}, 88%, 62%)`
+    );
+
+    // ===== 定数 =====
     const PADDLE_W = 130, PADDLE_H = 12;
-    const BALL_R = 7;
-    const ROWS = 30, COLS = 39;
-    const BW = 12, BH = 7, BGAP = 1;
-    const BOX = 7, BOY = 18;
+    const BALL_R   = 7;
+    const BALL_SPEED = 4.2;
 
-    const ROW_COLORS = [
-      '#ff6b6b','#ff6b6b','#ff6b6b',
-      '#ff9f43','#ff9f43','#ff9f43',
-      '#ffd32a','#ffd32a','#ffd32a',
-      '#0be881','#0be881','#0be881',
-      '#4bcffa','#4bcffa','#4bcffa',
-      '#a29bfe','#a29bfe','#a29bfe',
-      '#fd79a8','#fd79a8','#fd79a8',
-      '#6c5ce7','#6c5ce7','#6c5ce7',
-      '#00b894','#00b894','#00b894',
-      '#e17055','#e17055','#e17055'
-    ];
-
-    let paddle, ball, blocks, debris, ballTrail;
-    let score, lives, animId, running;
-    let keys = {};
-    let shakeX = 0, shakeY = 0;
-    let flashAlpha = 0;
+    // ===== 状態 =====
+    let paddle, ball, ballTrail;
+    let blockAlive;   // Uint8Array — 1=生存, 0=破壊済み
+    let debris = [];
     let pendingBreaks = [];
+    let score, lives, animId, running;
+    let shakeX = 0, shakeY = 0, flashAlpha = 0;
+    let keys = {};
+    const drillLabel = document.getElementById('drillLabel');
 
+    // ===== 入力 =====
     canvas.addEventListener('mousemove', e => {
       if (!running) return;
       const rect = canvas.getBoundingClientRect();
-      paddle.x = e.clientX - rect.left - PADDLE_W / 2;
-      paddle.x = Math.max(0, Math.min(CW - PADDLE_W, paddle.x));
+      paddle.x = Math.max(0, Math.min(CW - PADDLE_W, e.clientX - rect.left - PADDLE_W / 2));
     });
-
-    document.addEventListener('keydown', e => { keys[e.key] = true; e.preventDefault(); });
+    document.addEventListener('keydown', e => { keys[e.key] = true; });
     document.addEventListener('keyup',   e => { keys[e.key] = false; });
 
+    // ===== ゲーム開始 =====
     function startGame() {
       if (animId) cancelAnimationFrame(animId);
-
       score = 0; lives = 3; running = true;
-      debris = []; ballTrail = [];
+      debris = []; ballTrail = []; pendingBreaks = [];
       shakeX = 0; shakeY = 0; flashAlpha = 0;
-      pendingBreaks = [];
 
-      paddle = { x: CW / 2 - PADDLE_W / 2, y: CH - 28 };
-      resetBall();
+      paddle = { x: CW / 2 - PADDLE_W / 2, y: CH - 30 };
 
-      blocks = [];
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          blocks.push({
-            r, c,
-            x: BOX + c * (BW + BGAP),
-            y: BOY + r * (BH + BGAP),
-            alive: true,
-            color: ROW_COLORS[r]
-          });
-        }
-      }
+      blockAlive = new Uint8Array(ROWS * COLS).fill(1);
+
+      launchBall(true);   // 最初は貫通モードで発射
 
       document.getElementById('message').textContent = '';
       document.getElementById('startBtn').textContent = 'もう一度';
@@ -108,36 +106,51 @@
       loop();
     }
 
-    function resetBall() {
+    function launchBall(penetrating) {
       ball = {
         x: CW / 2,
-        y: CH / 2 + 60,
-        vx: 3.8 * (Math.random() > 0.5 ? 1 : -1),
-        vy: -3.8
+        y: CH - 80,
+        vx: BALL_SPEED * (Math.random() > 0.5 ? 0.8 : -0.8),
+        vy: -BALL_SPEED,
+        penetrating
       };
+      ballTrail = [];
+      drillLabel.style.opacity = penetrating ? '1' : '0';
     }
 
+    // ===== メインループ =====
     function loop() {
       update();
       draw();
       if (running) animId = requestAnimationFrame(loop);
     }
 
+    // ===== 更新 =====
     function update() {
+      // キーボード
       if (keys['ArrowLeft'])  paddle.x = Math.max(0, paddle.x - 7);
       if (keys['ArrowRight']) paddle.x = Math.min(CW - PADDLE_W, paddle.x + 7);
 
-      // ボールのトレイル記録
+      // トレイル記録
       ballTrail.unshift({ x: ball.x, y: ball.y });
-      if (ballTrail.length > 18) ballTrail.pop();
+      if (ballTrail.length > 20) ballTrail.pop();
 
       ball.x += ball.vx;
       ball.y += ball.vy;
 
-      // 壁反射
-      if (ball.x - BALL_R < 0)   { ball.x = BALL_R; ball.vx = Math.abs(ball.vx); }
-      if (ball.x + BALL_R > CW)  { ball.x = CW - BALL_R; ball.vx = -Math.abs(ball.vx); }
-      if (ball.y - BALL_R < 0)   { ball.y = BALL_R; ball.vy = Math.abs(ball.vy); }
+      // 左右壁
+      if (ball.x - BALL_R < 0)  { ball.x = BALL_R;      ball.vx =  Math.abs(ball.vx); }
+      if (ball.x + BALL_R > CW) { ball.x = CW - BALL_R; ball.vx = -Math.abs(ball.vx); }
+
+      // 天井 → 貫通モード解除
+      if (ball.y - BALL_R < 0) {
+        ball.y = BALL_R;
+        ball.vy = Math.abs(ball.vy);
+        if (ball.penetrating) {
+          ball.penetrating = false;
+          drillLabel.style.opacity = '0';
+        }
+      }
 
       // 落下
       if (ball.y - BALL_R > CH) {
@@ -149,11 +162,11 @@
           document.getElementById('message').textContent = 'ゲームオーバー... 😢';
           return;
         }
-        resetBall();
-        ballTrail = [];
+        launchBall(true);
+        return;
       }
 
-      // パドル反射
+      // パドル反射 → 貫通モード ON
       if (
         ball.vy > 0 &&
         ball.y + BALL_R >= paddle.y &&
@@ -163,142 +176,154 @@
         ball.vy = -Math.abs(ball.vy);
         const hit = (ball.x - (paddle.x + PADDLE_W / 2)) / (PADDLE_W / 2);
         ball.vx = hit * 6;
-      }
-
-      // ブロック当たり判定
-      for (const b of blocks) {
-        if (!b.alive) continue;
-        if (
-          ball.x + BALL_R > b.x && ball.x - BALL_R < b.x + BW &&
-          ball.y + BALL_R > b.y && ball.y - BALL_R < b.y + BH
-        ) {
-          const ol = (ball.x + BALL_R) - b.x;
-          const or2 = (b.x + BW) - (ball.x - BALL_R);
-          const ot = (ball.y + BALL_R) - b.y;
-          const ob = (b.y + BH) - (ball.y - BALL_R);
-          if (Math.min(ol, or2) < Math.min(ot, ob)) ball.vx *= -1;
-          else ball.vy *= -1;
-
-          destroyBlock(b, true);
-          break;
+        if (!ball.penetrating) {
+          ball.penetrating = true;
+          drillLabel.style.opacity = '1';
         }
       }
 
-      // 予約された連鎖破壊を実行
+      // ブロック衝突判定
+      for (let i = 0; i < ROWS * COLS; i++) {
+        if (!blockAlive[i]) continue;
+        const r = (i / COLS) | 0;
+        const c = i % COLS;
+        const bx = BOX + c * BW;
+        const by = BOY + r * BH;
+
+        if (
+          ball.x + BALL_R > bx && ball.x - BALL_R < bx + BW &&
+          ball.y + BALL_R > by && ball.y - BALL_R < by + BH
+        ) {
+          if (ball.penetrating) {
+            // 貫通：はね返さず破壊のみ
+            destroyBlock(i, r, c, bx, by, false);
+          } else {
+            // 通常：はね返す
+            const ol = (ball.x + BALL_R) - bx;
+            const or2 = (bx + BW) - (ball.x - BALL_R);
+            const ot = (ball.y + BALL_R) - by;
+            const ob = (by + BH) - (ball.y - BALL_R);
+            if (Math.min(ol, or2) < Math.min(ot, ob)) ball.vx *= -1;
+            else ball.vy *= -1;
+            destroyBlock(i, r, c, bx, by, true);
+            break;
+          }
+        }
+      }
+
+      // 予約済み連鎖破壊
       const now = performance.now();
       for (let i = pendingBreaks.length - 1; i >= 0; i--) {
         const pb = pendingBreaks[i];
         if (now >= pb.time) {
-          if (pb.block.alive) destroyBlock(pb.block, false);
+          if (blockAlive[pb.idx]) {
+            const r = (pb.idx / COLS) | 0;
+            const c = pb.idx % COLS;
+            destroyBlock(pb.idx, r, c, BOX + c * BW, BOY + r * BH, false);
+          }
           pendingBreaks.splice(i, 1);
         }
       }
 
       // デブリ物理
       for (const d of debris) {
-        d.x  += d.vx;
-        d.y  += d.vy;
-        d.vy += 0.3;
-        d.vx *= 0.98;
+        d.x += d.vx; d.y += d.vy;
+        d.vy += 0.28; d.vx *= 0.98;
         d.rotation += d.rotSpeed;
-        d.alpha -= 0.016;
+        d.alpha -= 0.022;
       }
-      debris = debris.filter(d => d.alpha > 0 && d.y < CH + 80);
+      debris = debris.filter(d => d.alpha > 0 && d.y < CH + 60);
 
       // エフェクト減衰
-      flashAlpha *= 0.82;
-      shakeX *= 0.72;
-      shakeY *= 0.72;
+      flashAlpha *= 0.8;
+      shakeX *= 0.7;
+      shakeY *= 0.7;
 
       // クリア判定
-      if (running && blocks.every(b => !b.alive)) {
+      if (running && blockAlive.every(v => v === 0)) {
         running = false;
-        document.getElementById('message').textContent = 'クリア！ 🎉';
+        document.getElementById('message').textContent = 'クリア！全部崩した！🎉';
       }
     }
 
-    function destroyBlock(b, fromBall) {
-      if (!b.alive) return;
-      b.alive = false;
+    function destroyBlock(idx, r, c, bx, by, fromBall) {
+      blockAlive[idx] = 0;
       score += 10;
       updateInfo();
+      spawnDebris(bx, by, ROW_COLORS[r]);
 
-      spawnDebris(b);
+      const s = fromBall ? 3 : 1.5;
+      shakeX += (Math.random() - 0.5) * s * 2;
+      shakeY += (Math.random() - 0.5) * s * 2;
 
-      const s = fromBall ? 4 : 2;
-      shakeX += (Math.random() - 0.5) * s * 3;
-      shakeY += (Math.random() - 0.5) * s * 3;
-
-      if (fromBall) triggerShockwave(b);
+      // 衝撃波（貫通中は小さく、通常はやや大きく）
+      const prob    = ball.penetrating ? 0.18 : 0.5;
+      const maxRad  = ball.penetrating ? 1 : 2;
+      if (Math.random() < prob) triggerShockwave(r, c, maxRad);
     }
 
-    function triggerShockwave(center) {
-      const maxR = 2 + Math.floor(Math.random() * 2);
+    function triggerShockwave(cr, cc, maxRad) {
       let count = 0;
-
-      for (const b of blocks) {
-        if (!b.alive) continue;
-        const dist = Math.max(Math.abs(b.r - center.r), Math.abs(b.c - center.c));
-        if (dist >= 1 && dist <= maxR && Math.random() < 0.55) {
-          const delay = dist * 65 + Math.random() * 35;
-          pendingBreaks.push({ block: b, time: performance.now() + delay });
-          count++;
+      for (let r2 = cr - maxRad; r2 <= cr + maxRad; r2++) {
+        for (let c2 = cc - maxRad; c2 <= cc + maxRad; c2++) {
+          if (r2 < 0 || r2 >= ROWS || c2 < 0 || c2 >= COLS) continue;
+          const dist = Math.max(Math.abs(r2 - cr), Math.abs(c2 - cc));
+          if (dist === 0) continue;
+          const idx2 = r2 * COLS + c2;
+          if (blockAlive[idx2] && Math.random() < 0.5) {
+            pendingBreaks.push({ idx: idx2, time: performance.now() + dist * 60 + Math.random() * 40 });
+            count++;
+          }
         }
       }
-
-      if (count >= 4) {
-        flashAlpha = Math.min(flashAlpha + 0.35, 0.55);
-        shakeX += (Math.random() - 0.5) * 14;
-        shakeY += (Math.random() - 0.5) * 14;
+      if (count >= 5) {
+        flashAlpha = Math.min(flashAlpha + 0.3, 0.5);
+        shakeX += (Math.random() - 0.5) * 12;
+        shakeY += (Math.random() - 0.5) * 12;
       }
     }
 
-    function spawnDebris(b) {
-      const cx = b.x + BW / 2;
-      const cy = b.y + BH / 2;
-      const count = 4;
-      for (let i = 0; i < count; i++) {
-        const angle = (i / count) * Math.PI * 2 + Math.random() * 0.8;
-        const speed = 1.5 + Math.random() * 5.5;
+    function spawnDebris(bx, by, color) {
+      for (let i = 0; i < 3; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1.5 + Math.random() * 4;
         debris.push({
-          x: cx + (Math.random() - 0.5) * BW * 0.8,
-          y: cy + (Math.random() - 0.5) * BH * 0.8,
-          w: 3 + Math.random() * 9,
-          h: 2 + Math.random() * 5,
+          x: bx + Math.random() * BW,
+          y: by + Math.random() * BH,
+          w: 2 + Math.random() * 4,
+          h: 1 + Math.random() * 3,
           vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed - 1.5,
+          vy: Math.sin(angle) * speed - 1,
           rotation: Math.random() * Math.PI * 2,
-          rotSpeed: (Math.random() - 0.5) * 0.28,
-          color: b.color,
-          alpha: 1
+          rotSpeed: (Math.random() - 0.5) * 0.3,
+          color, alpha: 1
         });
       }
     }
 
+    // ===== 描画 =====
     function draw() {
       ctx.clearRect(0, 0, CW, CH);
 
       // 画面揺れ
-      const sx = shakeX + (Math.random() - 0.5) * Math.abs(shakeX) * 0.5;
-      const sy = shakeY + (Math.random() - 0.5) * Math.abs(shakeY) * 0.5;
       ctx.save();
-      ctx.translate(sx, sy);
+      ctx.translate(
+        shakeX + (Math.random() - 0.5) * Math.abs(shakeX) * 0.4,
+        shakeY + (Math.random() - 0.5) * Math.abs(shakeY) * 0.4
+      );
 
-      // ブロック描画
-      for (const b of blocks) {
-        if (!b.alive) continue;
-        ctx.fillStyle = b.color;
-        ctx.beginPath();
-        ctx.roundRect(b.x, b.y, BW, BH, 1);
-        ctx.fill();
-        // 上部ハイライト（立体感）
-        ctx.fillStyle = 'rgba(255,255,255,0.18)';
-        ctx.beginPath();
-        ctx.roundRect(b.x + 1, b.y + 1, BW - 2, 2, [1, 1, 0, 0]);
-        ctx.fill();
+      // ブロック描画（高速化：同じ色をまとめて塗る）
+      let prevColor = null;
+      for (let i = 0; i < ROWS * COLS; i++) {
+        if (!blockAlive[i]) continue;
+        const r = (i / COLS) | 0;
+        const c = i % COLS;
+        const color = ROW_COLORS[r];
+        if (color !== prevColor) { ctx.fillStyle = color; prevColor = color; }
+        ctx.fillRect(BOX + c * BW + 0.5, BOY + r * BH + 0.5, BW - 1, BH - 1);
       }
 
-      // デブリ（破片）
+      // デブリ
       for (const d of debris) {
         ctx.save();
         ctx.globalAlpha = d.alpha;
@@ -309,14 +334,16 @@
         ctx.restore();
       }
 
-      // ボールのトレイル
+      // ボールトレイル
       for (let i = ballTrail.length - 1; i >= 0; i--) {
         const t = ballTrail[i];
         const ratio = 1 - i / ballTrail.length;
-        ctx.globalAlpha = ratio * 0.45;
-        ctx.fillStyle = `hsl(${260 + i * 5}, 80%, 75%)`;
+        ctx.globalAlpha = ratio * 0.5;
+        ctx.fillStyle = ball.penetrating
+          ? `hsl(${30 + i * 3}, 100%, 65%)`   // 貫通中：オレンジ〜黄色
+          : `hsl(${260 + i * 5}, 80%, 75%)`;  // 通常：紫
         ctx.beginPath();
-        ctx.arc(t.x, t.y, BALL_R * ratio * 0.85, 0, Math.PI * 2);
+        ctx.arc(t.x, t.y, BALL_R * ratio * 0.9, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.globalAlpha = 1;
@@ -330,10 +357,10 @@
       ctx.roundRect(paddle.x, paddle.y, PADDLE_W, PADDLE_H, 6);
       ctx.fill();
 
-      // ボール（グロー）
-      ctx.shadowColor = 'rgba(255,255,255,0.9)';
-      ctx.shadowBlur = 16;
-      ctx.fillStyle = 'white';
+      // ボール（貫通中はオレンジに光る）
+      ctx.shadowColor = ball.penetrating ? '#ff9f43' : 'rgba(255,255,255,0.9)';
+      ctx.shadowBlur  = ball.penetrating ? 22 : 14;
+      ctx.fillStyle   = ball.penetrating ? '#ffd32a' : 'white';
       ctx.beginPath();
       ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
       ctx.fill();
@@ -341,7 +368,7 @@
 
       ctx.restore();
 
-      // フラッシュ（白く光る）
+      // フラッシュ
       if (flashAlpha > 0.01) {
         ctx.globalAlpha = flashAlpha;
         ctx.fillStyle = 'white';
@@ -351,7 +378,7 @@
     }
 
     function updateInfo() {
-      document.getElementById('score').textContent = score;
+      document.getElementById('score').textContent    = score;
       document.getElementById('lives').textContent = '❤️'.repeat(Math.max(0, lives));
     }
 
