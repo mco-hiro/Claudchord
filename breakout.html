@@ -31,7 +31,7 @@
 </head>
 <body>
   <h1>🧱 ブロック崩し</h1>
-  <div id="info">スコア: <span id="score">0</span></div>
+  <div id="info">スコア: <span id="score">0</span> &nbsp;&nbsp; 残り: <span id="lives">❤️❤️❤️</span></div>
   <canvas id="canvas" width="520" height="430"></canvas>
   <div id="message">スタートを押してね！</div>
   <button id="startBtn" onclick="startGame()">スタート</button>
@@ -44,16 +44,21 @@
 
     const PADDLE_W = 130, PADDLE_H = 12;
     const BALL_R = 7;
-    const ROWS = 9, COLS = 13;
-    const BW = 37, BH = 16, BGAP = 2;
-    const BOX = 6, BOY = 22;
+    const ROWS = 30, COLS = 39;
+    const BW = 12, BH = 7, BGAP = 1;
+    const BOX = 7, BOY = 18;
 
     const ROW_COLORS = [
-      '#ff6b6b','#ff6b6b',
-      '#ff9f43','#ff9f43',
-      '#ffd32a','#ffd32a',
-      '#0be881','#0be881',
-      '#4bcffa'
+      '#ff6b6b','#ff6b6b','#ff6b6b',
+      '#ff9f43','#ff9f43','#ff9f43',
+      '#ffd32a','#ffd32a','#ffd32a',
+      '#0be881','#0be881','#0be881',
+      '#4bcffa','#4bcffa','#4bcffa',
+      '#a29bfe','#a29bfe','#a29bfe',
+      '#fd79a8','#fd79a8','#fd79a8',
+      '#6c5ce7','#6c5ce7','#6c5ce7',
+      '#00b894','#00b894','#00b894',
+      '#e17055','#e17055','#e17055'
     ];
 
     let paddle, ball, blocks, debris, ballTrail;
@@ -251,7 +256,7 @@
     function spawnDebris(b) {
       const cx = b.x + BW / 2;
       const cy = b.y + BH / 2;
-      const count = 10;
+      const count = 4;
       for (let i = 0; i < count; i++) {
         const angle = (i / count) * Math.PI * 2 + Math.random() * 0.8;
         const speed = 1.5 + Math.random() * 5.5;
@@ -284,12 +289,12 @@
         if (!b.alive) continue;
         ctx.fillStyle = b.color;
         ctx.beginPath();
-        ctx.roundRect(b.x, b.y, BW, BH, 3);
+        ctx.roundRect(b.x, b.y, BW, BH, 1);
         ctx.fill();
         // 上部ハイライト（立体感）
         ctx.fillStyle = 'rgba(255,255,255,0.18)';
         ctx.beginPath();
-        ctx.roundRect(b.x + 1, b.y + 1, BW - 2, 5, [3, 3, 0, 0]);
+        ctx.roundRect(b.x + 1, b.y + 1, BW - 2, 2, [1, 1, 0, 0]);
         ctx.fill();
       }
 
