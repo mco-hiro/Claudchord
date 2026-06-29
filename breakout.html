@@ -98,6 +98,14 @@
       const rect = canvas.getBoundingClientRect();
       paddle.x = Math.max(0, Math.min(CW - PADDLE_W, e.clientX - rect.left - PADDLE_W / 2));
     });
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (!running) return;
+      const rect  = canvas.getBoundingClientRect();
+      const touch = e.touches[0];
+      const scaleX = CW / rect.width;
+      paddle.x = Math.max(0, Math.min(CW - PADDLE_W, (touch.clientX - rect.left) * scaleX - PADDLE_W / 2));
+    }, { passive: false });
     document.addEventListener('keydown', e => { keys[e.key] = true; });
     document.addEventListener('keyup',   e => { keys[e.key] = false; });
 
