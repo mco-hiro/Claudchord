@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>数当てゲーム</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: #f0f4ff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 40px;
+      width: 360px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 8px;
+      color: #1a1a2e;
+    }
+
+    .subtitle {
+      color: #888;
+      font-size: 14px;
+      margin-bottom: 32px;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px;
+      font-size: 20px;
+      text-align: center;
+      border: 2px solid #ddd;
+      border-radius: 10px;
+      box-sizing: border-box;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      border-color: #4F8EF7;
+    }
+
+    button {
+      margin-top: 16px;
+      width: 100%;
+      padding: 12px;
+      font-size: 16px;
+      font-weight: bold;
+      background: #4F8EF7;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    button:hover {
+      background: #3a7ae0;
+    }
+
+    .message {
+      margin-top: 24px;
+      font-size: 18px;
+      font-weight: bold;
+      min-height: 28px;
+      color: #333;
+    }
+
+    .tries {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #aaa;
+    }
+
+    .hint-bar {
+      margin-top: 20px;
+      height: 8px;
+      background: #eee;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .hint-fill {
+      height: 100%;
+      width: 50%;
+      background: #4F8EF7;
+      border-radius: 4px;
+      transition: width 0.4s, background 0.4s;
+    }
+
+    .reset {
+      margin-top: 12px;
+      background: #eee;
+      color: #555;
+    }
+
+    .reset:hover {
+      background: #ddd;
+    }
+
+    .correct {
+      color: #22c55e;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🎯 数当てゲーム</h1>
+    <p class="subtitle">1〜100の数を当ててください！</p>
+
+    <input type="number" id="guess" min="1" max="100" placeholder="例: 50">
+    <button onclick="checkGuess()">予想する</button>
+
+    <div class="message" id="message">さあ、挑戦しよう！</div>
+    <div class="tries" id="tries"></div>
+
+    <div class="hint-bar">
+      <div class="hint-fill" id="hintBar"></div>
+    </div>
+
+    <button class="reset" onclick="resetGame()">もう一度遊ぶ</button>
+  </div>
+
+  <script>
+    let answer = randomInt(1, 100);
+    let tries = 0;
+    let gameOver = false;
+
+    function randomInt(min, max) {
+      return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    document.getElementById('guess').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') checkGuess();
+    });
+
+    function checkGuess() {
+      if (gameOver) return;
+
+      const input = document.getElementById('guess');
+      const guess = parseInt(input.value);
+      const message = document.getElementById('message');
+      const triesEl = document.getElementById('tries');
+      const bar = document.getElementById('hintBar');
+
+      if (!guess || guess < 1 || guess > 100) {
+        message.textContent = '1〜100の数を入力してください。';
+        message.className = 'message';
+        return;
+      }
+
+      tries++;
+      triesEl.textContent = `${tries}回目の挑戦`;
+      input.value = '';
+      input.focus();
+
+      const fillPercent = 100 - Math.abs(answer - guess);
+
+      if (guess < answer) {
+        message.textContent = '📈 もっと大きい数です！';
+        message.className = 'message';
+        bar.style.width = fillPercent + '%';
+        bar.style.background = '#f59e0b';
+      } else if (guess > answer) {
+        message.textContent = '📉 もっと小さい数です！';
+        message.className = 'message';
+        bar.style.width = fillPercent + '%';
+        bar.style.background = '#f59e0b';
+      } else {
+        message.textContent = `🎉 正解！${tries}回で当たった！`;
+        message.className = 'message correct';
+        bar.style.width = '100%';
+        bar.style.background = '#22c55e';
+        gameOver = true;
+      }
+    }
+
+    function resetGame() {
+      answer = randomInt(1, 100);
+      tries = 0;
+      gameOver = false;
+      document.getElementById('message').textContent = 'さあ、挑戦しよう！';
+      document.getElementById('message').className = 'message';
+      document.getElementById('tries').textContent = '';
+      document.getElementById('hintBar').style.width = '50%';
+      document.getElementById('hintBar').style.background = '#4F8EF7';
+      document.getElementById('guess').value = '';
+      document.getElementById('guess').focus();
+    }
+  </script>
+</body>
+</html>
