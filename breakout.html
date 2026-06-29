@@ -5,9 +5,8 @@
   <title>ブロック崩し</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-
     body {
-      background: #0f0f1a;
+      background: #0a0a18;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -16,105 +15,53 @@
       font-family: 'Segoe UI', sans-serif;
       color: white;
     }
-
-    h1 {
-      font-size: 22px;
-      margin-bottom: 8px;
-      letter-spacing: 2px;
-      color: #a78bfa;
-    }
-
-    #info {
-      display: flex;
-      gap: 32px;
-      margin-bottom: 10px;
-      font-size: 14px;
-      color: #ccc;
-    }
-
+    h1 { font-size: 20px; margin-bottom: 8px; color: #c4b5fd; letter-spacing: 2px; }
+    #info { font-size: 14px; color: #888; margin-bottom: 10px; }
     #info span { color: white; font-weight: bold; }
-
-    canvas {
-      background: #1a1a2e;
-      border-radius: 10px;
-      display: block;
-      border: 2px solid #2d2d4e;
-    }
-
-    #message {
-      margin-top: 12px;
-      font-size: 20px;
-      font-weight: bold;
-      min-height: 28px;
-      color: #a78bfa;
-    }
-
+    canvas { border-radius: 12px; border: 2px solid #1e1e3a; display: block; }
+    #message { margin-top: 14px; font-size: 22px; font-weight: bold; min-height: 30px; color: #c4b5fd; }
     #startBtn {
-      margin-top: 10px;
-      padding: 10px 36px;
-      font-size: 15px;
-      font-weight: bold;
-      background: #7c3aed;
-      color: white;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background 0.2s;
+      margin-top: 10px; padding: 10px 40px; font-size: 15px; font-weight: bold;
+      background: #7c3aed; color: white; border: none; border-radius: 8px;
+      cursor: pointer; transition: background 0.2s;
     }
-
     #startBtn:hover { background: #6d28d9; }
-
-    .hint {
-      margin-top: 8px;
-      font-size: 12px;
-      color: #555;
-    }
-
-    .legend {
-      margin-top: 6px;
-      font-size: 12px;
-      color: #666;
-    }
+    .hint { margin-top: 8px; font-size: 12px; color: #444; }
   </style>
 </head>
 <body>
   <h1>🧱 ブロック崩し</h1>
-  <div id="info">
-    スコア: <span id="score">0</span>
-    残り: <span id="lives">❤️❤️❤️</span>
-    コンボ: <span id="combo">×1</span>
-  </div>
-  <canvas id="canvas" width="520" height="420"></canvas>
+  <div id="info">スコア: <span id="score">0</span></div>
+  <canvas id="canvas" width="520" height="430"></canvas>
   <div id="message">スタートを押してね！</div>
   <button id="startBtn" onclick="startGame()">スタート</button>
   <p class="hint">← → キー または マウスでパドルを動かす</p>
-  <p class="legend">💥 爆発ブロック（当たると周囲も崩れる）</p>
 
   <script>
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-
     const CW = canvas.width, CH = canvas.height;
-    const PADDLE_W = 64, PADDLE_H = 10;
-    const BALL_R = 6;
-    const BLOCK_ROWS = 9, BLOCK_COLS = 13;
-    const BLOCK_W = 37, BLOCK_H = 16, BLOCK_GAP = 3;
-    const BLOCK_OFFSET_X = 7, BLOCK_OFFSET_Y = 24;
+
+    const PADDLE_W = 130, PADDLE_H = 12;
+    const BALL_R = 7;
+    const ROWS = 9, COLS = 13;
+    const BW = 37, BH = 16, BGAP = 2;
+    const BOX = 6, BOY = 22;
 
     const ROW_COLORS = [
-      '#f87171','#f87171',
-      '#fb923c','#fb923c',
-      '#facc15','#facc15',
-      '#4ade80','#4ade80',
-      '#60a5fa'
+      '#ff6b6b','#ff6b6b',
+      '#ff9f43','#ff9f43',
+      '#ffd32a','#ffd32a',
+      '#0be881','#0be881',
+      '#4bcffa'
     ];
 
-    // エフェクト用パーティクル
-    let particles = [];
-
-    let paddle, ball, blocks, score, lives, combo, animId, running;
+    let paddle, ball, blocks, debris, ballTrail;
+    let score, lives, animId, running;
     let keys = {};
-    let baseSpeed = 3.8;
+    let shakeX = 0, shakeY = 0;
+    let flashAlpha = 0;
+    let pendingBreaks = [];
 
     canvas.addEventListener('mousemove', e => {
       if (!running) return;
@@ -123,34 +70,29 @@
       paddle.x = Math.max(0, Math.min(CW - PADDLE_W, paddle.x));
     });
 
-    document.addEventListener('keydown', e => keys[e.key] = true);
-    document.addEventListener('keyup', e => keys[e.key] = false);
+    document.addEventListener('keydown', e => { keys[e.key] = true; e.preventDefault(); });
+    document.addEventListener('keyup',   e => { keys[e.key] = false; });
 
     function startGame() {
       if (animId) cancelAnimationFrame(animId);
 
-      score = 0;
-      lives = 3;
-      combo = 1;
-      running = true;
-      particles = [];
+      score = 0; lives = 3; running = true;
+      debris = []; ballTrail = [];
+      shakeX = 0; shakeY = 0; flashAlpha = 0;
+      pendingBreaks = [];
 
-      paddle = { x: CW / 2 - PADDLE_W / 2, y: CH - 22 };
-
+      paddle = { x: CW / 2 - PADDLE_W / 2, y: CH - 28 };
       resetBall();
 
-      // ブロック生成（爆弾ブロック約20%）
       blocks = [];
-      for (let r = 0; r < BLOCK_ROWS; r++) {
-        for (let c = 0; c < BLOCK_COLS; c++) {
-          const bomb = Math.random() < 0.18;
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
           blocks.push({
             r, c,
-            x: BLOCK_OFFSET_X + c * (BLOCK_W + BLOCK_GAP),
-            y: BLOCK_OFFSET_Y + r * (BLOCK_H + BLOCK_GAP),
+            x: BOX + c * (BW + BGAP),
+            y: BOY + r * (BH + BGAP),
             alive: true,
-            bomb,
-            color: bomb ? '#ff4d4d' : ROW_COLORS[r]
+            color: ROW_COLORS[r]
           });
         }
       }
@@ -164,9 +106,9 @@
     function resetBall() {
       ball = {
         x: CW / 2,
-        y: CH / 2 + 40,
-        vx: baseSpeed * (Math.random() > 0.5 ? 1 : -1),
-        vy: -baseSpeed
+        y: CH / 2 + 60,
+        vx: 3.8 * (Math.random() > 0.5 ? 1 : -1),
+        vy: -3.8
       };
     }
 
@@ -180,116 +122,150 @@
       if (keys['ArrowLeft'])  paddle.x = Math.max(0, paddle.x - 7);
       if (keys['ArrowRight']) paddle.x = Math.min(CW - PADDLE_W, paddle.x + 7);
 
+      // ボールのトレイル記録
+      ballTrail.unshift({ x: ball.x, y: ball.y });
+      if (ballTrail.length > 18) ballTrail.pop();
+
       ball.x += ball.vx;
       ball.y += ball.vy;
 
       // 壁反射
-      if (ball.x - BALL_R < 0)       { ball.x = BALL_R; ball.vx = Math.abs(ball.vx); }
-      if (ball.x + BALL_R > CW)      { ball.x = CW - BALL_R; ball.vx = -Math.abs(ball.vx); }
-      if (ball.y - BALL_R < 0)       { ball.y = BALL_R; ball.vy = Math.abs(ball.vy); }
+      if (ball.x - BALL_R < 0)   { ball.x = BALL_R; ball.vx = Math.abs(ball.vx); }
+      if (ball.x + BALL_R > CW)  { ball.x = CW - BALL_R; ball.vx = -Math.abs(ball.vx); }
+      if (ball.y - BALL_R < 0)   { ball.y = BALL_R; ball.vy = Math.abs(ball.vy); }
 
       // 落下
       if (ball.y - BALL_R > CH) {
         lives--;
-        combo = 1;
         updateInfo();
         if (lives <= 0) {
           running = false;
+          pendingBreaks = [];
           document.getElementById('message').textContent = 'ゲームオーバー... 😢';
           return;
         }
         resetBall();
+        ballTrail = [];
       }
 
       // パドル反射
       if (
         ball.vy > 0 &&
         ball.y + BALL_R >= paddle.y &&
-        ball.y - BALL_R <= paddle.y + PADDLE_H &&
-        ball.x >= paddle.x - 4 &&
-        ball.x <= paddle.x + PADDLE_W + 4
+        ball.y + BALL_R <= paddle.y + PADDLE_H + 6 &&
+        ball.x >= paddle.x && ball.x <= paddle.x + PADDLE_W
       ) {
         ball.vy = -Math.abs(ball.vy);
         const hit = (ball.x - (paddle.x + PADDLE_W / 2)) / (PADDLE_W / 2);
         ball.vx = hit * 6;
-        combo = 1;
       }
 
       // ブロック当たり判定
       for (const b of blocks) {
         if (!b.alive) continue;
         if (
-          ball.x + BALL_R > b.x &&
-          ball.x - BALL_R < b.x + BLOCK_W &&
-          ball.y + BALL_R > b.y &&
-          ball.y - BALL_R < b.y + BLOCK_H
+          ball.x + BALL_R > b.x && ball.x - BALL_R < b.x + BW &&
+          ball.y + BALL_R > b.y && ball.y - BALL_R < b.y + BH
         ) {
-          // どの面に当たったか判定
-          const overlapL = (ball.x + BALL_R) - b.x;
-          const overlapR = (b.x + BLOCK_W) - (ball.x - BALL_R);
-          const overlapT = (ball.y + BALL_R) - b.y;
-          const overlapB = (b.y + BLOCK_H) - (ball.y - BALL_R);
-          const minH = Math.min(overlapL, overlapR);
-          const minV = Math.min(overlapT, overlapB);
-          if (minH < minV) ball.vx *= -1; else ball.vy *= -1;
+          const ol = (ball.x + BALL_R) - b.x;
+          const or2 = (b.x + BW) - (ball.x - BALL_R);
+          const ot = (ball.y + BALL_R) - b.y;
+          const ob = (b.y + BH) - (ball.y - BALL_R);
+          if (Math.min(ol, or2) < Math.min(ot, ob)) ball.vx *= -1;
+          else ball.vy *= -1;
 
-          breakBlock(b);
-          updateInfo();
-
-          if (blocks.every(b => !b.alive)) {
-            running = false;
-            document.getElementById('message').textContent = 'クリア！すごい！🎉';
-          }
+          destroyBlock(b, true);
           break;
         }
       }
 
-      // パーティクル更新
-      particles = particles.filter(p => p.life > 0);
-      for (const p of particles) {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.15;
-        p.life--;
-      }
-    }
-
-    function breakBlock(b) {
-      b.alive = false;
-      score += 10 * combo;
-      combo++;
-      spawnParticles(b.x + BLOCK_W / 2, b.y + BLOCK_H / 2, b.color, b.bomb ? 20 : 8);
-
-      if (b.bomb) {
-        // 爆発：周囲3×3を巻き込む
-        for (const other of blocks) {
-          if (!other.alive) continue;
-          if (Math.abs(other.r - b.r) <= 1 && Math.abs(other.c - b.c) <= 1) {
-            other.alive = false;
-            score += 10 * combo;
-            combo++;
-            spawnParticles(other.x + BLOCK_W / 2, other.y + BLOCK_H / 2, other.color, 6);
-          }
+      // 予約された連鎖破壊を実行
+      const now = performance.now();
+      for (let i = pendingBreaks.length - 1; i >= 0; i--) {
+        const pb = pendingBreaks[i];
+        if (now >= pb.time) {
+          if (pb.block.alive) destroyBlock(pb.block, false);
+          pendingBreaks.splice(i, 1);
         }
-        // ボールをちょっとだけ速くする
-        const speed = Math.hypot(ball.vx, ball.vy);
-        const newSpeed = Math.min(speed + 0.4, 9);
-        ball.vx = (ball.vx / speed) * newSpeed;
-        ball.vy = (ball.vy / speed) * newSpeed;
+      }
+
+      // デブリ物理
+      for (const d of debris) {
+        d.x  += d.vx;
+        d.y  += d.vy;
+        d.vy += 0.3;
+        d.vx *= 0.98;
+        d.rotation += d.rotSpeed;
+        d.alpha -= 0.016;
+      }
+      debris = debris.filter(d => d.alpha > 0 && d.y < CH + 80);
+
+      // エフェクト減衰
+      flashAlpha *= 0.82;
+      shakeX *= 0.72;
+      shakeY *= 0.72;
+
+      // クリア判定
+      if (running && blocks.every(b => !b.alive)) {
+        running = false;
+        document.getElementById('message').textContent = 'クリア！ 🎉';
       }
     }
 
-    function spawnParticles(x, y, color, count) {
+    function destroyBlock(b, fromBall) {
+      if (!b.alive) return;
+      b.alive = false;
+      score += 10;
+      updateInfo();
+
+      spawnDebris(b);
+
+      const s = fromBall ? 4 : 2;
+      shakeX += (Math.random() - 0.5) * s * 3;
+      shakeY += (Math.random() - 0.5) * s * 3;
+
+      if (fromBall) triggerShockwave(b);
+    }
+
+    function triggerShockwave(center) {
+      const maxR = 2 + Math.floor(Math.random() * 2);
+      let count = 0;
+
+      for (const b of blocks) {
+        if (!b.alive) continue;
+        const dist = Math.max(Math.abs(b.r - center.r), Math.abs(b.c - center.c));
+        if (dist >= 1 && dist <= maxR && Math.random() < 0.55) {
+          const delay = dist * 65 + Math.random() * 35;
+          pendingBreaks.push({ block: b, time: performance.now() + delay });
+          count++;
+        }
+      }
+
+      if (count >= 4) {
+        flashAlpha = Math.min(flashAlpha + 0.35, 0.55);
+        shakeX += (Math.random() - 0.5) * 14;
+        shakeY += (Math.random() - 0.5) * 14;
+      }
+    }
+
+    function spawnDebris(b) {
+      const cx = b.x + BW / 2;
+      const cy = b.y + BH / 2;
+      const count = 10;
       for (let i = 0; i < count; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 4 + 1;
-        particles.push({
-          x, y,
+        const angle = (i / count) * Math.PI * 2 + Math.random() * 0.8;
+        const speed = 1.5 + Math.random() * 5.5;
+        debris.push({
+          x: cx + (Math.random() - 0.5) * BW * 0.8,
+          y: cy + (Math.random() - 0.5) * BH * 0.8,
+          w: 3 + Math.random() * 9,
+          h: 2 + Math.random() * 5,
           vx: Math.cos(angle) * speed,
-          vy: Math.sin(angle) * speed - 2,
-          color,
-          life: 30 + Math.random() * 20,
-          size: Math.random() * 4 + 2
+          vy: Math.sin(angle) * speed - 1.5,
+          rotation: Math.random() * Math.PI * 2,
+          rotSpeed: (Math.random() - 0.5) * 0.28,
+          color: b.color,
+          alpha: 1
         });
       }
     }
@@ -297,52 +273,81 @@
     function draw() {
       ctx.clearRect(0, 0, CW, CH);
 
+      // 画面揺れ
+      const sx = shakeX + (Math.random() - 0.5) * Math.abs(shakeX) * 0.5;
+      const sy = shakeY + (Math.random() - 0.5) * Math.abs(shakeY) * 0.5;
+      ctx.save();
+      ctx.translate(sx, sy);
+
       // ブロック描画
       for (const b of blocks) {
         if (!b.alive) continue;
         ctx.fillStyle = b.color;
         ctx.beginPath();
-        ctx.roundRect(b.x, b.y, BLOCK_W, BLOCK_H, 3);
+        ctx.roundRect(b.x, b.y, BW, BH, 3);
         ctx.fill();
-
-        if (b.bomb) {
-          ctx.font = `${BLOCK_H - 4}px serif`;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText('💥', b.x + BLOCK_W / 2, b.y + BLOCK_H / 2);
-        }
+        // 上部ハイライト（立体感）
+        ctx.fillStyle = 'rgba(255,255,255,0.18)';
+        ctx.beginPath();
+        ctx.roundRect(b.x + 1, b.y + 1, BW - 2, 5, [3, 3, 0, 0]);
+        ctx.fill();
       }
 
-      // パーティクル描画
-      for (const p of particles) {
-        ctx.globalAlpha = p.life / 50;
-        ctx.fillStyle = p.color;
+      // デブリ（破片）
+      for (const d of debris) {
+        ctx.save();
+        ctx.globalAlpha = d.alpha;
+        ctx.fillStyle = d.color;
+        ctx.translate(d.x, d.y);
+        ctx.rotate(d.rotation);
+        ctx.fillRect(-d.w / 2, -d.h / 2, d.w, d.h);
+        ctx.restore();
+      }
+
+      // ボールのトレイル
+      for (let i = ballTrail.length - 1; i >= 0; i--) {
+        const t = ballTrail[i];
+        const ratio = 1 - i / ballTrail.length;
+        ctx.globalAlpha = ratio * 0.45;
+        ctx.fillStyle = `hsl(${260 + i * 5}, 80%, 75%)`;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.arc(t.x, t.y, BALL_R * ratio * 0.85, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.globalAlpha = 1;
 
       // パドル
-      ctx.fillStyle = '#a78bfa';
+      const grad = ctx.createLinearGradient(paddle.x, paddle.y, paddle.x, paddle.y + PADDLE_H);
+      grad.addColorStop(0, '#c4b5fd');
+      grad.addColorStop(1, '#7c3aed');
+      ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.roundRect(paddle.x, paddle.y, PADDLE_W, PADDLE_H, 5);
+      ctx.roundRect(paddle.x, paddle.y, PADDLE_W, PADDLE_H, 6);
       ctx.fill();
 
-      // ボール（光彩付き）
-      ctx.shadowColor = 'white';
-      ctx.shadowBlur = 10;
+      // ボール（グロー）
+      ctx.shadowColor = 'rgba(255,255,255,0.9)';
+      ctx.shadowBlur = 16;
       ctx.fillStyle = 'white';
       ctx.beginPath();
       ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
       ctx.fill();
       ctx.shadowBlur = 0;
+
+      ctx.restore();
+
+      // フラッシュ（白く光る）
+      if (flashAlpha > 0.01) {
+        ctx.globalAlpha = flashAlpha;
+        ctx.fillStyle = 'white';
+        ctx.fillRect(0, 0, CW, CH);
+        ctx.globalAlpha = 1;
+      }
     }
 
     function updateInfo() {
       document.getElementById('score').textContent = score;
-      document.getElementById('lives').textContent = '❤️'.repeat(lives);
-      document.getElementById('combo').textContent = `×${combo}`;
+      document.getElementById('lives').textContent = '❤️'.repeat(Math.max(0, lives));
     }
 
     draw();
